@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Thi Đua</title>
+
+<style>
+body {
+  margin: 0;
+  background: black;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+}
+
+/* wrapper mobile */
+.wrapper {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* canvas cố định */
+.scene {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: center;
+}
+
+/* background */
+.bg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* svg */
+svg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+/* runner */
+.runner {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  cursor: pointer;
+}
+
+/* avatar */
+.avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  box-shadow: 0 0 20px gold;
+}
+
+/* icon */
+.icon {
+  width: 30px;
+}
+
+/* name */
+.name {
+  color: white;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* popup */
+#popup {
+  position: absolute;
+  background: rgba(0,0,0,0.9);
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  display: none;
+  z-index: 999;
+  font-size: 14px;
+  max-width: 200px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+  <div class="scene" id="scene">
+
+    <img src="bg.jpg" class="bg"/>
+
+    <svg id="svg" viewBox="0 0 1554 838">
+      <path id="track"
+        d="M0.154587 837.332 L1356.65 396.332 C1632.25 273.132 1558.15 80.9983 1486.65 0.33165"
+        fill="none"
+        stroke="transparent"/>
+    </svg>
+
+    <div id="runners"></div>
+    <div id="popup"></div>
+
+  </div>
+</div>
+
+<script>
+
+// ================= CONFIG =================
+
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQyHDHFWUa48Iu5nFAJoaEMQHLL7M445EEjZE6bX_e9lft6OQVEyMd_IHdmqrKc0PSeF_KXEI59JpZ7/pub?gid=0&single=true&output=csv";
+
+const milestones = [
+  { value: 200000000, percent: 0 },
+  { value: 550000000, percent: 0.15 },
+  { value: 900000000, percent: 0.30 },
+  { value: 1400000000, percent: 0.55 },
+  { value: 1600000000, percent: 0.70 },
+  { value: 3000000000, percent: 1 }
+];
+
+// ================= SCALE SCENE =================
+
+function scaleScene() {
+  const scene = document.getElementById("scene");
+
+  const scaleX = window.innerWidth / 1920;
+  const scaleY = window.innerHeight / 1080;
+
+  const scale = Math.min(scaleX, scaleY);
+  scene.style.transform = `scale(${scale})`;
+}
+
+window.addEventListener("resize", scaleScene);
+scaleScene();
+
+// ================= PATH =================
+
+const svg = document.getElementById("svg");
+const path = document.getElementById("track");
+const pathLength = path.getTotalLength();
+
+function getPosition(percent) {
+  return path.getPointAtLength(percent * pathLength);
+}
+
+function getAngle(percent) {
+  const p1 = path.getPointAtLength(percent * pathLength);
+  const p2 = path.getPointAtLength(Math.min(percent + 0.01, 1) * pathLength);
+  return Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+}
+
+function convertToScreen(pos) {
+  const rect = svg.getBoundingClientRect();
+  const scaleX = rect.width / svg.viewBox.baseVal.width;
+  const scaleY = rect.height / svg.viewBox.baseVal.height;
+
+  return {
+    x: pos.x * scaleX,
+    y: pos.y * scaleY
+  };
+}
+
+// ================= MAPPING =================
+
+function getPercent(revenue) {
+  for (let i = 0; i < milestones.length - 1; i++) {
+    const m1 = milestones[i];
+    const m2 = milestones[i + 1];
+
+    if (revenue >= m1.value && revenue <= m2.value) {
+      const ratio = (revenue - m1.value) / (m2.value - m1.value);
+      return m1.percent + ratio * (m2.percent - m1.percent);
+    }
+  }
+  if (revenue < milestones[0].value) return 0;
+  return 1;
+}
+
+// ================= FETCH =================
+
+async function fetchData() {
+  const res = await fetch(SHEET_URL);
+  const text = await res.text();
+
+  const rows = text.trim().split("\n").slice(1);
+
+  return rows.map(row => {
+    const cols = row.split(",");
+
+    return {
+      name: cols[0]?.trim(),
+      group: cols[1]?.trim(),
+      revenue: Number(cols[2]?.replace(/\./g, "")),
+      avatar: cols[3]?.trim(),
+      runner: cols[4]?.trim()
+    };
+  }).filter(x => x.name && !isNaN(x.revenue));
+}
+
+// ================= IMAGE LOGIC =================
+
+function getImageHTML(user, rank) {
+
+  const fallback = "https://cdn-icons-png.flaticon.com/512/149/149071.png";
+
+  if (user.revenue < 550000000) {
+    return `<img src="id.png" class="icon"
+      onerror="this.src='${fallback}'"/>`;
+  }
+
+  if (rank <= 3 && user.avatar) {
+    return `<img src="${user.avatar}" class="avatar"
+      onerror="this.src='${fallback}'"/>`;
+  }
+
+  return `<img src="${user.runner}" class="icon"
+    onerror="this.src='${fallback}'"/>`;
+}
+
+// ================= RENDER =================
+
+function render(data) {
+
+  const container = document.getElementById("runners");
+  const popup = document.getElementById("popup");
+
+  container.innerHTML = "";
+
+  const sorted = [...data].sort((a,b)=>b.revenue-a.revenue);
+
+  data.forEach(user => {
+
+    const percent = getPercent(user.revenue);
+    const rawPos = getPosition(percent);
+    const pos = convertToScreen(rawPos);
+    const angle = getAngle(percent);
+    const rank = sorted.findIndex(u=>u.name===user.name)+1;
+
+    const el = document.createElement("div");
+    el.className = "runner";
+
+    const scale = 0.6 + percent * 0.6;
+    const offsetY = -6;
+
+    el.style.left = pos.x + "px";
+    el.style.top = (pos.y + offsetY) + "px";
+    el.style.transform = `translate(-50%, -50%) rotate(${angle}deg) scale(${scale})`;
+
+    el.innerHTML = `
+      <div style="transform: rotate(${-angle}deg)">
+        ${getImageHTML(user, rank)}
+        <div class="name">${rank <=3 ? "#" + rank + " " : ""}${user.name}</div>
+      </div>
+    `;
+
+    el.onclick = (e) => {
+      e.stopPropagation();
+
+      popup.style.display = "block";
+      popup.style.left = (pos.x + 20) + "px";
+      popup.style.top = (pos.y - 20) + "px";
+
+      popup.innerHTML = `
+        <b>${user.name}</b><br/>
+        Nhóm: ${user.group}<br/>
+        Doanh thu: ${user.revenue.toLocaleString("vi-VN")} đ
+      `;
+    };
+
+    container.appendChild(el);
+  });
+
+  document.body.onclick = () => {
+    popup.style.display = "none";
+  };
+}
+
+// ================= MAIN =================
+
+async function init() {
+  const data = await fetchData();
+  render(data);
+}
+
+setInterval(init, 10000);
+init();
+
+</script>
+
+</body>
+</html>
